@@ -1,6 +1,7 @@
 package com.github.megachucky.kafka.streams.machinelearning
 
 
+import java.time.Duration
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
@@ -129,7 +130,7 @@ class Kafka_Streams_MachineLearning_H2O_GBM_SCALA_Example extends App{
     // Streams
 
     sys.ShutdownHookThread {
-      streams.close(10, TimeUnit.SECONDS)
+      streams.close(Duration.ofSeconds(10))
     }
 
 }
