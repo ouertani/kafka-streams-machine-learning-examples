@@ -5,6 +5,7 @@ import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import hex.genmodel.GenModel
+import hex.genmodel.easy.prediction.BinomialModelPrediction
 import hex.genmodel.easy.{EasyPredictModelWrapper, RowData}
 import org.apache.kafka.streams.scala.{Serdes, StreamsBuilder}
 import org.apache.kafka.streams.scala.kstream._
@@ -47,6 +48,47 @@ class Kafka_Streams_MachineLearning_H2O_GBM_SCALA_Example extends App{
     p
   }
 
+  def toRow : String =>Iterable[RowData]= { value =>
+    // Year,Month,DayofMonth,DayOfWeek,DepTime,CRSDepTime,ArrTime,CRSArrTime,UniqueCarrier,FlightNum,TailNum,ActualElapsedTime,CRSElapsedTime,AirTime,ArrDelay,DepDelay,Origin,Dest,Distance,TaxiIn,TaxiOut,Cancelled,CancellationCode,Diverted,CarrierDelay,WeatherDelay,NASDelay,SecurityDelay,LateAircraftDelay,IsArrDelayed,IsDepDelayed
+    // value:
+    // YES, probably delayed:
+    // 1987,10,14,3,741,730,912,849,PS,1451,NA,91,79,NA,23,11,SAN,SFO,447,NA,NA,0,NA,0,NA,NA,NA,NA,NA,YES,YES
+    // NO, probably not delayed:
+    // 1999,10,14,3,741,730,912,849,PS,1451,NA,91,79,NA,23,11,SAN,SFO,447,NA,NA,0,NA,0,NA,NA,NA,NA,NA,YES,YES
+    if (value != null && !(value == "")) {
+      println("#####################")
+      println("Flight Input:" + value)
+      val valuesArray = value.split(",")
+      val row = new RowData
+      row.put("Year", valuesArray(0))
+      row.put("Month", valuesArray(1))
+      row.put("DayofMonth", valuesArray(2))
+      row.put("DayOfWeek", valuesArray(3))
+      row.put("CRSDepTime", valuesArray(5))
+      row.put("UniqueCarrier", valuesArray(8))
+      row.put("Origin", valuesArray(16))
+      row.put("Dest", valuesArray(17))
+      Some(row)
+    }
+    else
+      None
+
+  }
+
+  def echoPrediction(p: BinomialModelPrediction): Unit ={
+    println("Label (aka prediction) is flight departure delayed: " + p.label)
+    print("Class probabilities: ")
+    var i = 0
+    for(i<- 0 to p.classProbabilities.length)
+    {
+      if (i > 0) print(",")
+      print(p.classProbabilities(i))
+
+    }
+    println("")
+    println("#####################")
+  }
+
     // In the subsequent lines we define the processing topology of the
     // Streams application.
     val builder = new StreamsBuilder
@@ -58,48 +100,19 @@ class Kafka_Streams_MachineLearning_H2O_GBM_SCALA_Example extends App{
     val airlineInputLines :  KStream[String, String] = builder.stream[String,String]("AirlineInputTopic")
     // Stream Processor (in this case 'foreach' to add custom logic, i.e. apply the
     // analytic model)
-    airlineInputLines.foreach((key: String, value: String) => {
-      // Year,Month,DayofMonth,DayOfWeek,DepTime,CRSDepTime,ArrTime,CRSArrTime,UniqueCarrier,FlightNum,TailNum,ActualElapsedTime,CRSElapsedTime,AirTime,ArrDelay,DepDelay,Origin,Dest,Distance,TaxiIn,TaxiOut,Cancelled,CancellationCode,Diverted,CarrierDelay,WeatherDelay,NASDelay,SecurityDelay,LateAircraftDelay,IsArrDelayed,IsDepDelayed
-        // value:
-        // YES, probably delayed:
-        // 1987,10,14,3,741,730,912,849,PS,1451,NA,91,79,NA,23,11,SAN,SFO,447,NA,NA,0,NA,0,NA,NA,NA,NA,NA,YES,YES
-        // NO, probably not delayed:
-        // 1999,10,14,3,741,730,912,849,PS,1451,NA,91,79,NA,23,11,SAN,SFO,447,NA,NA,0,NA,0,NA,NA,NA,NA,NA,YES,YES
-        if (value != null && !(value == "")) {
-          println("#####################")
-          println("Flight Input:" + value)
-          val valuesArray = value.split(",")
-          val row = new RowData
-          row.put("Year", valuesArray(0))
-          row.put("Month", valuesArray(1))
-          row.put("DayofMonth", valuesArray(2))
-          row.put("DayOfWeek", valuesArray(3))
-          row.put("CRSDepTime", valuesArray(5))
-          row.put("UniqueCarrier", valuesArray(8))
-          row.put("Origin", valuesArray(16))
-          row.put("Dest", valuesArray(17))
 
-          val p = model.predictBinomial(row)
+    airlineInputLines.flatMapValues(toRow).mapValues( row =>{
 
-          airlineDelayPreduction = p.label
-          println("Label (aka prediction) is flight departure delayed: " + p.label)
-          print("Class probabilities: ")
-          var i = 0
-          while ( {
-            i < p.classProbabilities.length
-          }) {
-            if (i > 0) print(",")
-            print(p.classProbabilities(i))
 
-            {
-              i += 1; i - 1
-            }
-          }
-          println("")
-          println("#####################")
-        }
+        val p = model.predictBinomial(row)
 
-    })
+        airlineDelayPreduction = p.label
+        echoPrediction(p)
+
+      })
+
+
+
     // airlineInputLines.print();
     // Transform message: Add prediction information
     val transformedMessage = airlineInputLines.mapValues( _ => ("Prediction: Is Airline delayed? =>" + airlineDelayPreduction))
